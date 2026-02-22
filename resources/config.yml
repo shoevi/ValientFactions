@@ -1,0 +1,7 @@
+modules:
+  Armor: true
+
+# Advanced settings
+settings:
+  debug: false
+  auto-save-interval: 300
