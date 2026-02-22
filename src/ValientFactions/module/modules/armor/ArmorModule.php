@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ValientFactions\module\modules\armor;
 
+use pocketmine\scheduler\TaskHandler;
 use pocketmine\utils\TextFormat as TF;
 use ValientFactions\Main;
 use ValientFactions\module\BaseModule;
@@ -33,6 +34,7 @@ final class ArmorModule extends BaseModule {
     private ArmorSetRegistry $registry;
     private ArmorManager $armorManager;
     private ArmorStatsTracker $stats;
+    private ?TaskHandler $effectTask = null;
 
     public function getName(): string {
         return "Armor";
@@ -63,7 +65,7 @@ final class ArmorModule extends BaseModule {
         );
 
         // Effect refresh + cache + notification task every 100 ticks (5 s)
-        $this->plugin->getScheduler()->scheduleRepeatingTask(
+        $this->effectTask = $this->plugin->getScheduler()->scheduleRepeatingTask(
             new ArmorEffectTask($this->plugin, $this->armorManager),
             100
         );
@@ -82,6 +84,8 @@ final class ArmorModule extends BaseModule {
     }
 
     public function onDisable(): void {
+        // Cancel repeating task to prevent duplicates on reload
+        $this->effectTask?->cancel();
         // Persistent effects will naturally expire within their 10 s window.
         parent::onDisable();
     }
