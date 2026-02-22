@@ -17,6 +17,21 @@ commands:
     usage: "/armor <sets|get|give|info|inspect|stats|ability> [args]"
     permission: valientfactions.armor
     aliases: [armorset]
+  kit:
+    description: Open the kit menu
+    usage: "/kit"
+    permission: valientfactions.kit
+    aliases: [kits]
+  gkits:
+    description: Open the God Kits menu
+    usage: "/gkits"
+    permission: valientfactions.kit
+    aliases: [gkit]
+  vkits:
+    description: Open the VIP Kits menu
+    usage: "/vkits"
+    permission: valientfactions.kit
+    aliases: [vkit]
 
 permissions:
   valientfactions.command:
@@ -32,6 +47,7 @@ permissions:
       valientfactions.reload: true
       valientfactions.armor: true
       valientfactions.armor.give: true
+      valientfactions.kit: true
   valientfactions.module.enable:
     description: Allows enabling modules
     default: op
@@ -47,3 +63,6 @@ permissions:
   valientfactions.armor.give:
     description: Allows giving armor sets to other players via /armor give
     default: op
+  valientfactions.kit:
+    description: Allows access to kit commands
+    default: true

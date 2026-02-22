@@ -9,14 +9,22 @@ use pocketmine\utils\TextFormat;
 use ValientFactions\module\ModuleManager;
 use ValientFactions\module\modules\armor\ArmorModule;
 use ValientFactions\command\VFactionsCommand;
+use ValientFactions\kit\KitManager;
+use ValientFactions\kit\command\KitCommand;
+use ValientFactions\kit\command\GKitsCommand;
+use ValientFactions\kit\command\VKitsCommand;
 
 final class Main extends PluginBase {
 
     private ModuleManager $moduleManager;
+    private KitManager $kitManager;
 
     protected function onEnable(): void {
         // Save default config if it doesn't exist
         $this->saveDefaultConfig();
+        
+        // Initialize kit manager
+        $this->kitManager = new KitManager();
         
         // Initialize module manager
         $this->moduleManager = new ModuleManager($this);
@@ -67,10 +75,17 @@ final class Main extends PluginBase {
     private function registerCommands(): void {
         $commandMap = $this->getServer()->getCommandMap();
         $commandMap->register("valientfactions", new VFactionsCommand($this));
+        $commandMap->register("kit", new KitCommand($this, $this->kitManager));
+        $commandMap->register("gkits", new GKitsCommand($this, $this->kitManager));
+        $commandMap->register("vkits", new VKitsCommand($this, $this->kitManager));
     }
 
     public function getModuleManager(): ModuleManager {
         return $this->moduleManager;
+    }
+
+    public function getKitManager(): KitManager {
+        return $this->kitManager;
     }
 
     public function reloadConfiguration(): void {
