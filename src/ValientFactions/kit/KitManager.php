@@ -9,6 +9,7 @@ use pocketmine\item\enchantment\VanillaEnchantments;
 use pocketmine\item\VanillaItems;
 use pocketmine\player\Player;
 use pocketmine\utils\TextFormat as TF;
+use ValientFactions\customitem\CustomItemManager;
 
 /**
  * Manages kit registration, cooldowns, and claiming.
@@ -20,8 +21,10 @@ final class KitManager {
 
     /** @var array<string, array<string, int>> Player UUID => Kit Name => Timestamp */
     private array $cooldowns = [];
+    private ?CustomItemManager $customItemManager;
 
-    public function __construct() {
+    public function __construct(?CustomItemManager $customItemManager = null) {
+        $this->customItemManager = $customItemManager;
         $this->registerDefaultKits();
     }
 
@@ -167,7 +170,9 @@ final class KitManager {
                     ->addEnchantment(new EnchantmentInstance(VanillaEnchantments::UNBREAKING(), 3)),
                 VanillaItems::ENCHANTED_GOLDEN_APPLE()->setCount(64),
                 VanillaItems::ENDER_PEARL()->setCount(32),
-                VanillaItems::TOTEM()->setCount(4)
+                VanillaItems::TOTEM()->setCount(4),
+                $this->customItemManager?->createItem("cosmic_orb") ?? VanillaItems::NETHER_STAR(),
+                $this->customItemManager?->createItem("vampiric_apple") ?? VanillaItems::GOLDEN_APPLE()
             ],
             172800 // 48 hours cooldown
         ));

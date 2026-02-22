@@ -9,6 +9,8 @@ use pocketmine\utils\TextFormat;
 use ValientFactions\module\ModuleManager;
 use ValientFactions\module\modules\armor\ArmorModule;
 use ValientFactions\command\VFactionsCommand;
+use ValientFactions\customitem\CustomItemListener;
+use ValientFactions\customitem\CustomItemManager;
 use ValientFactions\kit\KitManager;
 use ValientFactions\kit\command\KitCommand;
 use ValientFactions\kit\command\GKitsCommand;
@@ -17,14 +19,20 @@ use ValientFactions\kit\command\VKitsCommand;
 final class Main extends PluginBase {
 
     private ModuleManager $moduleManager;
+    private CustomItemManager $customItemManager;
     private KitManager $kitManager;
 
     protected function onEnable(): void {
         // Save default config if it doesn't exist
         $this->saveDefaultConfig();
         
+        // Initialize custom item API + listener
+        $this->customItemManager = new CustomItemManager();
+        $this->customItemManager->registerDefaults();
+        $this->getServer()->getPluginManager()->registerEvents(new CustomItemListener($this->customItemManager), $this);
+
         // Initialize kit manager
-        $this->kitManager = new KitManager();
+        $this->kitManager = new KitManager($this->customItemManager);
         
         // Initialize module manager
         $this->moduleManager = new ModuleManager($this);
@@ -86,6 +94,10 @@ final class Main extends PluginBase {
 
     public function getKitManager(): KitManager {
         return $this->kitManager;
+    }
+
+    public function getCustomItemManager(): CustomItemManager {
+        return $this->customItemManager;
     }
 
     public function reloadConfiguration(): void {
