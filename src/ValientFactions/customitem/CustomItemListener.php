@@ -14,11 +14,10 @@ final class CustomItemListener implements Listener {
     }
 
     public function onInteract(PlayerInteractEvent $event): void {
-        $this->customItemManager->handleLeftClick($event);
+        $this->customItemManager->handleInteract($event);
     }
 
     public function onConsume(PlayerItemConsumeEvent $event): void {
         $this->customItemManager->handleConsume($event);
     }
 }
-

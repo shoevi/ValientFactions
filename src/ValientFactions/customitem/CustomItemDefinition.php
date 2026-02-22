@@ -57,7 +57,7 @@ final class CustomItemDefinition {
         return $item->getNamedTag()->getString(self::NBT_KEY, "") === $this->id;
     }
 
-    public function onLeftClick(Player $player, Item $item, PlayerInteractEvent $event): void {
+    public function onInteract(Player $player, Item $item, PlayerInteractEvent $event): void {
         $this->leftClickHandler?->__invoke($player, $item, $event);
     }
 
@@ -65,4 +65,3 @@ final class CustomItemDefinition {
         $this->consumeHandler?->__invoke($player, $item, $event);
     }
 }
-

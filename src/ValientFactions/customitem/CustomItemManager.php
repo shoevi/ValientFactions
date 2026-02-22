@@ -15,6 +15,8 @@ use pocketmine\utils\TextFormat as TF;
 
 final class CustomItemManager {
 
+    private const NBT_KEY = "vf_custom_item_id";
+
     /** @var array<string, CustomItemDefinition> */
     private array $items = [];
 
@@ -60,27 +62,27 @@ final class CustomItemManager {
     }
 
     public function getDefinition(Item $item): ?CustomItemDefinition {
-        foreach ($this->items as $definition) {
-            if ($definition->matches($item)) {
-                return $definition;
-            }
+        $id = $item->getNamedTag()->getString(self::NBT_KEY, "");
+        if ($id === "") {
+            return null;
         }
-        return null;
+        return $this->items[$id] ?? null;
     }
 
-    public function handleLeftClick(PlayerInteractEvent $event): void {
+    public function handleInteract(PlayerInteractEvent $event): void {
         if ($event->getAction() !== PlayerInteractEvent::LEFT_CLICK_AIR
             && $event->getAction() !== PlayerInteractEvent::LEFT_CLICK_BLOCK) {
             return;
         }
 
         $player = $event->getPlayer();
-        $definition = $this->getDefinition($event->getItem());
+        $item = $event->getItem();
+        $definition = $this->getDefinition($item);
         if ($definition === null) {
             return;
         }
 
-        $definition->onLeftClick($player, $event->getItem(), $event);
+        $definition->onInteract($player, $item, $event);
     }
 
     public function handleConsume(PlayerItemConsumeEvent $event): void {
@@ -93,4 +95,3 @@ final class CustomItemManager {
         $definition->onConsume($player, $event->getItem(), $event);
     }
 }
-
