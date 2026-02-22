@@ -1,0 +1,9 @@
+modules:
+  Chat: true
+  Protection: true
+  Power: true
+
+# Advanced settings
+settings:
+  debug: false
+  auto-save-interval: 300

@@ -1,0 +1,36 @@
+name: ValientFactions
+version: 1.0.0
+api: 5.0.0
+main: ValientFactions\Main
+author: ValientMC
+description: Advanced modular faction system for PocketMine-MP 5
+website: https://github.com/ValientMC/ValientFactions
+
+commands:
+  vfactions:
+    description: Main ValientFactions command
+    usage: "/vfactions <modules|enable|disable|reload> [args]"
+    permission: valientfactions.command
+    aliases: [vf, factions]
+
+permissions:
+  valientfactions.command:
+    description: Allows access to the main vfactions command
+    default: op
+  valientfactions.admin:
+    description: Allows access to all administrative features
+    default: op
+    children:
+      valientfactions.command: true
+      valientfactions.module.enable: true
+      valientfactions.module.disable: true
+      valientfactions.reload: true
+  valientfactions.module.enable:
+    description: Allows enabling modules
+    default: op
+  valientfactions.module.disable:
+    description: Allows disabling modules
+    default: op
+  valientfactions.reload:
+    description: Allows reloading the plugin configuration
+    default: op
