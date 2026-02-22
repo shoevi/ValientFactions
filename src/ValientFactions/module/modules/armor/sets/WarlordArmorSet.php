@@ -6,17 +6,23 @@ namespace ValientFactions\module\modules\armor\sets;
 
 use pocketmine\utils\Color;
 use pocketmine\utils\TextFormat as TF;
+use ValientFactions\module\modules\armor\abilities\BattleCryAbility;
 use ValientFactions\module\modules\armor\ArmorPerk;
 use ValientFactions\module\modules\armor\ArmorSet;
+use ValientFactions\module\modules\armor\SetAbility;
 
 /**
- * Warlord Armor Set – hardened by a thousand battles.
+ * Warlord Armor Set – Hardened by a thousand battles.
  *
- * The ultimate tank set. The wearer shrugs off tremendous damage and cannot
- * be easily moved by knockback.
+ * The supreme tank set. The wearer shrugs off colossal amounts of damage,
+ * stands immovable to knockback, resists explosions, and reflects a portion
+ * of every hit back at the attacker like plate mail studded with razors.
  *
- * 2-piece: 20% damage reduction, 20% knockback resistance
- * 4-piece: 40% damage reduction, 40% knockback resistance
+ * Passive combat trigger: 25% of damage received is reflected back to the
+ * attacker (Thorns).
+ *
+ * Active ability: Battle Cry – self-buff Strength II + Resistance II while
+ * debuffing all nearby enemies.
  */
 final class WarlordArmorSet extends ArmorSet {
 
@@ -36,19 +42,22 @@ final class WarlordArmorSet extends ArmorSet {
         return TF::YELLOW;
     }
 
-    public function getPerksForPieces(int $pieces): array {
-        if ($pieces >= 4) {
-            return [
-                ArmorPerk::DAMAGE_REDUCTION->value    => 0.40,
-                ArmorPerk::KNOCKBACK_RESISTANCE->value => 0.40,
-            ];
-        }
-        if ($pieces >= 2) {
-            return [
-                ArmorPerk::DAMAGE_REDUCTION->value    => 0.20,
-                ArmorPerk::KNOCKBACK_RESISTANCE->value => 0.20,
-            ];
-        }
-        return [];
+    public function getPerks(): array {
+        return [
+            ArmorPerk::DAMAGE_REDUCTION->value     => 0.45,
+            ArmorPerk::KNOCKBACK_RESISTANCE->value  => 0.45,
+            ArmorPerk::EXPLOSION_RESISTANCE->value  => 0.50,
+            ArmorPerk::THORNS->value                => 0.25,
+            ArmorPerk::RESISTANCE->value            => 1.0,
+            ArmorPerk::FALL_DAMAGE_REDUCTION->value => 0.60,
+        ];
+    }
+
+    public function getAbility(): ?SetAbility {
+        return new BattleCryAbility();
+    }
+
+    public function getCombatTriggerDescription(): ?string {
+        return "25% of damage taken is reflected back to the attacker";
     }
 }

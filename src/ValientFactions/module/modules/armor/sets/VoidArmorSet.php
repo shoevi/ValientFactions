@@ -6,17 +6,21 @@ namespace ValientFactions\module\modules\armor\sets;
 
 use pocketmine\utils\Color;
 use pocketmine\utils\TextFormat as TF;
+use ValientFactions\module\modules\armor\abilities\VoidShroudAbility;
 use ValientFactions\module\modules\armor\ArmorPerk;
 use ValientFactions\module\modules\armor\ArmorSet;
+use ValientFactions\module\modules\armor\SetAbility;
 
 /**
- * Void Armor Set – infused with void energy.
+ * Void Armor Set – Infused with void energy.
  *
- * Focused on sustain and survivability. The set absorbs incoming damage and
- * returns a portion of it to the wearer as health (lifesteal).
+ * The ultimate sustain set. Every hit absorbed feeds the wearer back health
+ * and a regenerative aura keeps them in the fight far longer than normal.
  *
- * 2-piece: 15% damage reduction
- * 4-piece: 30% damage reduction, 10% lifesteal, Regeneration I
+ * Passive combat trigger: When HP would drop below 25%, a one-time emergency
+ * shield absorbs the killing blow (45 s internal cooldown).
+ *
+ * Active ability: Void Shroud – 3 s of complete invulnerability + 4 HP heal.
  */
 final class VoidArmorSet extends ArmorSet {
 
@@ -36,19 +40,20 @@ final class VoidArmorSet extends ArmorSet {
         return TF::DARK_PURPLE;
     }
 
-    public function getPerksForPieces(int $pieces): array {
-        if ($pieces >= 4) {
-            return [
-                ArmorPerk::DAMAGE_REDUCTION->value => 0.30,
-                ArmorPerk::LIFESTEAL->value         => 0.10,
-                ArmorPerk::REGENERATION->value      => 1.0,
-            ];
-        }
-        if ($pieces >= 2) {
-            return [
-                ArmorPerk::DAMAGE_REDUCTION->value => 0.15,
-            ];
-        }
-        return [];
+    public function getPerks(): array {
+        return [
+            ArmorPerk::DAMAGE_REDUCTION->value => 0.35,
+            ArmorPerk::LIFESTEAL->value         => 0.15,
+            ArmorPerk::REGENERATION->value      => 2.0,
+            ArmorPerk::ABSORPTION->value        => 1.0,
+        ];
+    }
+
+    public function getAbility(): ?SetAbility {
+        return new VoidShroudAbility();
+    }
+
+    public function getCombatTriggerDescription(): ?string {
+        return "Emergency shield absorbs lethal hit when HP < 25% (45s CD)";
     }
 }

@@ -14,9 +14,9 @@ commands:
     aliases: [vf, factions]
   vfarmor:
     description: Manage custom leather armor sets
-    usage: "/vfarmor <sets|get|give|info> [args]"
+    usage: "/vfarmor <sets|get|give|info|inspect|stats|ability> [args]"
     permission: valientfactions.armor
-    aliases: [vfa]
+    aliases: [vfa, vfability]
 
 permissions:
   valientfactions.command:

@@ -6,17 +6,21 @@ namespace ValientFactions\module\modules\armor\sets;
 
 use pocketmine\utils\Color;
 use pocketmine\utils\TextFormat as TF;
+use ValientFactions\module\modules\armor\abilities\ThunderDashAbility;
 use ValientFactions\module\modules\armor\ArmorPerk;
 use ValientFactions\module\modules\armor\ArmorSet;
+use ValientFactions\module\modules\armor\SetAbility;
 
 /**
- * Storm Armor Set – blessed by the sky.
+ * Storm Armor Set – Blessed by the sky.
  *
- * Focused on mobility and burst damage. The wearer moves like lightning and
- * strikes harder with every hit.
+ * The premier mobility and pressure set. Blazing Speed III lets the wearer
+ * dictate every engagement while the on-hit Slowness I drags enemies to a crawl.
  *
- * 2-piece: Speed I, +10% damage
- * 4-piece: Speed II, +20% damage, 10% knockback resistance
+ * Passive combat trigger: On player kill, gain Speed III + Jump Boost II for 5 s
+ * ("Killing Spree").
+ *
+ * Active ability: Thunder Dash – launch forward at extreme speed.
  */
 final class StormArmorSet extends ArmorSet {
 
@@ -36,20 +40,21 @@ final class StormArmorSet extends ArmorSet {
         return TF::AQUA;
     }
 
-    public function getPerksForPieces(int $pieces): array {
-        if ($pieces >= 4) {
-            return [
-                ArmorPerk::SPEED->value               => 2.0,
-                ArmorPerk::DAMAGE_BOOST->value        => 0.20,
-                ArmorPerk::KNOCKBACK_RESISTANCE->value => 0.10,
-            ];
-        }
-        if ($pieces >= 2) {
-            return [
-                ArmorPerk::SPEED->value        => 1.0,
-                ArmorPerk::DAMAGE_BOOST->value => 0.10,
-            ];
-        }
-        return [];
+    public function getPerks(): array {
+        return [
+            ArmorPerk::SPEED->value               => 3.0,
+            ArmorPerk::DAMAGE_BOOST->value         => 0.25,
+            ArmorPerk::KNOCKBACK_RESISTANCE->value => 0.15,
+            ArmorPerk::SLOWNESS_ON_HIT->value      => 60.0,  // 3 s Slowness I on target
+            ArmorPerk::JUMP_BOOST->value           => 2.0,
+        ];
+    }
+
+    public function getAbility(): ?SetAbility {
+        return new ThunderDashAbility();
+    }
+
+    public function getCombatTriggerDescription(): ?string {
+        return "On kill: Speed III + Jump Boost II for 5s (Killing Spree)";
     }
 }

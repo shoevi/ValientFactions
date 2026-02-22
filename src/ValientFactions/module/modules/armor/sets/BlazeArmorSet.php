@@ -6,17 +6,22 @@ namespace ValientFactions\module\modules\armor\sets;
 
 use pocketmine\utils\Color;
 use pocketmine\utils\TextFormat as TF;
+use ValientFactions\module\modules\armor\abilities\InfernoNovaAbility;
 use ValientFactions\module\modules\armor\ArmorPerk;
 use ValientFactions\module\modules\armor\ArmorSet;
+use ValientFactions\module\modules\armor\SetAbility;
 
 /**
- * Blaze Armor Set – forged in the Nether.
+ * Blaze Armor Set – Forged in the Nether.
  *
- * Focused on raw offensive power. Wearing pieces ignites your attacks and
- * makes you immune to fire while dealing crushing bonus damage.
+ * An all-out offense set built for players who fight fire with fire.
+ * The full 4-piece bonus grants massive damage amplification, Strength II,
+ * and complete fire immunity.
  *
- * 2-piece: +15% damage
- * 4-piece: +25% damage, Strength I, Fire Resistance
+ * Passive combat trigger: On every successful hit there is a 35% chance to
+ * ignite the target for 4 seconds.
+ *
+ * Active ability: Inferno Nova – erupts a ring of fire around the wearer.
  */
 final class BlazeArmorSet extends ArmorSet {
 
@@ -36,19 +41,20 @@ final class BlazeArmorSet extends ArmorSet {
         return TF::GOLD;
     }
 
-    public function getPerksForPieces(int $pieces): array {
-        if ($pieces >= 4) {
-            return [
-                ArmorPerk::DAMAGE_BOOST->value    => 0.25,
-                ArmorPerk::STRENGTH->value         => 1.0,
-                ArmorPerk::FIRE_RESISTANCE->value  => 1.0,
-            ];
-        }
-        if ($pieces >= 2) {
-            return [
-                ArmorPerk::DAMAGE_BOOST->value => 0.15,
-            ];
-        }
-        return [];
+    public function getPerks(): array {
+        return [
+            ArmorPerk::DAMAGE_BOOST->value       => 0.30,
+            ArmorPerk::STRENGTH->value            => 2.0,
+            ArmorPerk::FIRE_RESISTANCE->value     => 1.0,
+            ArmorPerk::FALL_DAMAGE_REDUCTION->value => 0.15,
+        ];
+    }
+
+    public function getAbility(): ?SetAbility {
+        return new InfernoNovaAbility();
+    }
+
+    public function getCombatTriggerDescription(): ?string {
+        return "35% chance on hit to ignite target for 4 seconds";
     }
 }
