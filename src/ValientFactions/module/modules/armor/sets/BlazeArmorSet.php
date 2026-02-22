@@ -6,22 +6,19 @@ namespace ValientFactions\module\modules\armor\sets;
 
 use pocketmine\utils\Color;
 use pocketmine\utils\TextFormat as TF;
+use ValientFactions\module\modules\armor\abilities\BlazeIgnitionTrigger;
 use ValientFactions\module\modules\armor\abilities\InfernoNovaAbility;
 use ValientFactions\module\modules\armor\ArmorPerk;
 use ValientFactions\module\modules\armor\ArmorSet;
-use ValientFactions\module\modules\armor\SetAbility;
 
 /**
  * Blaze Armor Set – Forged in the Nether.
  *
- * An all-out offense set built for players who fight fire with fire.
- * The full 4-piece bonus grants massive damage amplification, Strength II,
- * and complete fire immunity.
+ * Passive perks: +30% damage, Strength II, Fire Resistance, 15% fall reduction.
  *
- * Passive combat trigger: On every successful hit there is a 35% chance to
- * ignite the target for 4 seconds.
- *
- * Active ability: Inferno Nova – erupts a ring of fire around the wearer.
+ * Triggers (auto-fire):
+ *  1. BlazeIgnitionTrigger (ON_HIT_DEALT, no CD) – 35% chance to ignite target
+ *  2. InfernoNovaAbility   (ON_HIT_DEALT, 45s CD) – ring of fire when cooldown ready
  */
 final class BlazeArmorSet extends ArmorSet {
 
@@ -43,18 +40,17 @@ final class BlazeArmorSet extends ArmorSet {
 
     public function getPerks(): array {
         return [
-            ArmorPerk::DAMAGE_BOOST->value       => 0.30,
-            ArmorPerk::STRENGTH->value            => 2.0,
-            ArmorPerk::FIRE_RESISTANCE->value     => 1.0,
-            ArmorPerk::FALL_DAMAGE_REDUCTION->value => 0.15,
+            ArmorPerk::DAMAGE_BOOST->value          => 0.30,
+            ArmorPerk::STRENGTH->value               => 2.0,
+            ArmorPerk::FIRE_RESISTANCE->value        => 1.0,
+            ArmorPerk::FALL_DAMAGE_REDUCTION->value  => 0.15,
         ];
     }
 
-    public function getAbility(): ?SetAbility {
-        return new InfernoNovaAbility();
-    }
-
-    public function getCombatTriggerDescription(): ?string {
-        return "35% chance on hit to ignite target for 4 seconds";
+    public function getTriggers(): array {
+        return [
+            new BlazeIgnitionTrigger(),
+            new InfernoNovaAbility(),
+        ];
     }
 }

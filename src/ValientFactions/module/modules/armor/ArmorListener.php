@@ -16,28 +16,29 @@ use pocketmine\scheduler\ClosureTask;
 use ValientFactions\Main;
 
 /**
- * Handles all event-driven armor perk logic.
+ * Event-driven armor perk logic.
  *
- * Events handled:
+ * Passive perks (damage boost/reduction, KB resist, lifesteal, thorns,
+ * slowness-on-hit, fall/explosion reduction) are applied inline.
  *
- *  onEntityDamage            – env damage (fall, fire, explosion) reduction
- *  onEntityDamageByEntity    – PvP/mob perks:
- *                                • invincibility check (Void Shroud ability)
- *                                • damage reduction (victim)
- *                                • damage boost (attacker)
- *                                • knockback resistance (victim)
- *                                • lifesteal (attacker, post-damage heal)
- *                                • thorns reflection (victim → attacker)
- *                                • Slowness-on-hit (attacker applies to victim)
- *                                • Void low-HP emergency shield (victim trigger)
- *                                • Blaze ignition trigger (attacker)
- *                                • stats tracking
- *  onPlayerDeath             – Storm Killing Spree trigger
- *  onPlayerQuit              – clean up per-player caches
+ * Active triggers ({@see SetTrigger}) are dispatched through
+ * {@see ArmorManager::fireTrigger()} – no hardcoded set-name checks here.
+ *
+ * Combat event order (EntityDamageByEntity):
+ *  1. Cancel if wearer invincible.
+ *  2. Dispatch ON_HIT_TAKEN for victim (preventDamage cancels event).
+ *  3. Damage boost (attacker passive perk).
+ *  4. Damage reduction (victim passive perk).
+ *  5. Knockback resistance (victim passive perk).
+ *  6. Lifesteal heal (attacker, 1-tick delay).
+ *  7. Thorns reflection (victim to attacker, 1-tick delay, recursion-guarded).
+ *  8. Slowness-on-hit (attacker perk to victim).
+ *  9. Dispatch ON_HIT_DEALT for attacker (Blaze Ignition, Inferno Nova, etc.).
+ * 10. Stats tracking.
  */
 final class ArmorListener implements Listener {
 
-    /** Minimum HP left on an entity after thorns reflection (prevents instant-kill). */
+    /** Minimum HP left after thorns reflection (prevents instant-kill). */
     private const MIN_HEALTH_AFTER_THORNS = 0.5;
 
     private Main $plugin;
@@ -52,10 +53,6 @@ final class ArmorListener implements Listener {
     // Environmental damage  (fall, fire, explosion, etc.)
     // =========================================================================
 
-    /**
-     * Handles non-entity damage sources.
-     * EntityDamageByEntityEvent is explicitly excluded to prevent double-handling.
-     */
     public function onEntityDamage(EntityDamageEvent $event): void {
         if ($event instanceof EntityDamageByEntityEvent || $event->isCancelled()) {
             return;
@@ -66,7 +63,6 @@ final class ArmorListener implements Listener {
             return;
         }
 
-        // Invincibility (Void Shroud)
         if ($this->armorManager->isInvincible($victim)) {
             $event->cancel();
             return;
@@ -76,22 +72,21 @@ final class ArmorListener implements Listener {
 
         switch ($cause) {
             case EntityDamageEvent::CAUSE_FALL:
-                $fallReduction = $this->armorManager->getFallDamageReduction($victim);
-                if ($fallReduction > 0.0) {
-                    $event->setBaseDamage($event->getBaseDamage() * (1.0 - $fallReduction));
+                $fallRed = $this->armorManager->getFallDamageReduction($victim);
+                if ($fallRed > 0.0) {
+                    $event->setBaseDamage($event->getBaseDamage() * (1.0 - $fallRed));
                 }
                 break;
 
             case EntityDamageEvent::CAUSE_BLOCK_EXPLOSION:
             case EntityDamageEvent::CAUSE_ENTITY_EXPLOSION:
-                $explodeReduction = $this->armorManager->getExplosionResistance($victim);
-                if ($explodeReduction > 0.0) {
-                    $event->setBaseDamage($event->getBaseDamage() * (1.0 - $explodeReduction));
+                $explRed = $this->armorManager->getExplosionResistance($victim);
+                if ($explRed > 0.0) {
+                    $event->setBaseDamage($event->getBaseDamage() * (1.0 - $explRed));
                 }
                 break;
         }
 
-        // General damage reduction applies to all non-entity sources
         $reduction = $this->armorManager->getDamageReduction($victim);
         if ($reduction > 0.0) {
             $event->setBaseDamage($event->getBaseDamage() * (1.0 - $reduction));
@@ -110,25 +105,30 @@ final class ArmorListener implements Listener {
         $attacker = $event->getDamager();
         $victim   = $event->getEntity();
 
-        // --- Invincibility check (Void Shroud) --------------------------------
+        // Step 1: Invincibility (Void Shroud, etc.)
         if ($victim instanceof Player && $this->armorManager->isInvincible($victim)) {
             $event->cancel();
             return;
         }
 
-        // --- Void low-HP emergency shield (passive trigger) -------------------
+        // Step 2: ON_HIT_TAKEN triggers for victim (may cancel event via preventDamage)
         if ($victim instanceof Player) {
-            $hpAfterHit = $victim->getHealth() - $event->getFinalDamage();
-            if ($hpAfterHit <= $victim->getMaxHealth() * 0.25) {
-                if ($this->armorManager->consumeVoidShield($victim)) {
-                    $event->cancel();
-                    $victim->sendTip("§5✦ §dVoid Shield §5absorbed the killing blow!");
-                    return;
-                }
+            $ctx = new TriggerContext(
+                TriggerType::ON_HIT_TAKEN,
+                $victim,
+                $attacker instanceof Player ? $attacker : null,
+                $event->getFinalDamage(),
+                $victim->getHealth(),
+                $victim->getMaxHealth()
+            );
+            $this->armorManager->fireTrigger($victim, $ctx);
+            if ($ctx->preventDamage) {
+                $event->cancel();
+                return;
             }
         }
 
-        // --- Damage boost (attacker wearing full set) -------------------------
+        // Step 3: Damage boost (attacker passive perk)
         if ($attacker instanceof Player) {
             $boost = $this->armorManager->getDamageBoost($attacker);
             if ($boost > 0.0) {
@@ -141,9 +141,8 @@ final class ArmorListener implements Listener {
             }
         }
 
-        // --- Damage reduction (victim wearing full set) -----------------------
+        // Step 4: Damage reduction (victim passive perk, skipped for thorns bounces)
         if ($victim instanceof Player) {
-            // Skip if this is a thorns reflection to prevent double-reduction
             if (!($attacker instanceof Player && $this->armorManager->isThornsReflecting($attacker))) {
                 $reduction = $this->armorManager->getDamageReduction($victim);
                 if ($reduction > 0.0) {
@@ -158,7 +157,7 @@ final class ArmorListener implements Listener {
             }
         }
 
-        // --- Knockback resistance (victim) ------------------------------------
+        // Step 5: Knockback resistance (victim passive perk)
         if ($victim instanceof Player) {
             $kbResist = $this->armorManager->getKnockbackResistance($victim);
             if ($kbResist > 0.0) {
@@ -166,10 +165,9 @@ final class ArmorListener implements Listener {
             }
         }
 
-        // Store the final damage before post-event hooks
         $finalDamage = $event->getFinalDamage();
 
-        // --- Lifesteal (attacker) ---------------------------------------------
+        // Step 6: Lifesteal (attacker, heals 1 tick after damage is applied)
         if ($attacker instanceof Player && $victim instanceof Player) {
             $lifesteal = $this->armorManager->getLifesteal($attacker);
             if ($lifesteal > 0.0) {
@@ -191,19 +189,18 @@ final class ArmorListener implements Listener {
             }
         }
 
-        // --- Thorns (victim reflects damage to attacker) ----------------------
+        // Step 7: Thorns reflection (victim to attacker, recursion-guarded)
         if ($victim instanceof Player && $attacker instanceof Player) {
-            // Guard against recursive thorns reflection
             if (!$this->armorManager->isThornsReflecting($victim)) {
                 $thorns = $this->armorManager->getThorns($victim);
                 if ($thorns > 0.0) {
-                    $reflectedDamage = $finalDamage * $thorns;
+                    $reflected = $finalDamage * $thorns;
                     $this->armorManager->startThornsReflection($victim);
                     $this->plugin->getScheduler()->scheduleDelayedTask(
-                        new ClosureTask(function () use ($victim, $attacker, $reflectedDamage): void {
+                        new ClosureTask(function () use ($victim, $attacker, $reflected): void {
                             $this->armorManager->endThornsReflection($victim);
                             if ($attacker->isOnline() && $attacker->isAlive()) {
-                                $newHp = max(self::MIN_HEALTH_AFTER_THORNS, $attacker->getHealth() - $reflectedDamage);
+                                $newHp = max(self::MIN_HEALTH_AFTER_THORNS, $attacker->getHealth() - $reflected);
                                 $attacker->setHealth($newHp);
                             }
                         }),
@@ -212,38 +209,36 @@ final class ArmorListener implements Listener {
                     $this->armorManager->getStats()->increment(
                         $victim,
                         ArmorStatsTracker::THORNS_REFLECTED,
-                        $reflectedDamage
+                        $reflected
                     );
                 }
             }
         }
 
-        // --- Slowness on hit (attacker applies to victim) ---------------------
+        // Step 8: Slowness-on-hit (attacker's perk applied to victim)
         if ($attacker instanceof Player && $victim instanceof Player) {
-            $slownessTicks = $this->armorManager->getSlownessOnHitTicks($attacker);
-            if ($slownessTicks > 0) {
+            $slowTicks = $this->armorManager->getSlownessOnHitTicks($attacker);
+            if ($slowTicks > 0) {
                 $victim->getEffects()->add(
-                    new EffectInstance(VanillaEffects::SLOWNESS(), $slownessTicks, 0, false) // Slowness I
+                    new EffectInstance(VanillaEffects::SLOWNESS(), $slowTicks, 0, false)
                 );
             }
         }
 
-        // --- Blaze ignition trigger (attacker, 35% chance) --------------------
+        // Step 9: ON_HIT_DEALT triggers for attacker (Blaze Ignition, Inferno Nova, etc.)
         if ($attacker instanceof Player && $victim instanceof Player) {
-            $blazeSet = $this->armorManager->getCachedActiveSet($attacker)
-                ?? $this->armorManager->getActiveSet($attacker);
-            if ($blazeSet !== null && $blazeSet->getName() === "Blaze") {
-                if (mt_rand(1, 100) <= 35) {
-                    $victim->setOnFire(4);
-                    $this->armorManager->getStats()->increment(
-                        $attacker,
-                        ArmorStatsTracker::COMBAT_TRIGGERS
-                    );
-                }
-            }
+            $ctx = new TriggerContext(
+                TriggerType::ON_HIT_DEALT,
+                $attacker,
+                $victim,
+                $finalDamage,
+                $attacker->getHealth(),
+                $attacker->getMaxHealth()
+            );
+            $this->armorManager->fireTrigger($attacker, $ctx);
         }
 
-        // --- Stats: hits dealt / taken ----------------------------------------
+        // Step 10: Stats
         if ($attacker instanceof Player) {
             $this->armorManager->getStats()->increment($attacker, ArmorStatsTracker::HITS_DEALT);
         }
@@ -253,7 +248,7 @@ final class ArmorListener implements Listener {
     }
 
     // =========================================================================
-    // Kill detection  (Storm "Killing Spree")
+    // Kill detection  (dispatches ON_KILL trigger – e.g. Storm Thunder Dash)
     // =========================================================================
 
     public function onPlayerDeath(PlayerDeathEvent $event): void {
@@ -265,9 +260,20 @@ final class ArmorListener implements Listener {
         }
 
         $killer = $cause->getDamager();
-        if ($killer instanceof Player && $killer->isOnline() && $killer->isAlive()) {
-            $this->armorManager->handleKill($killer);
+        if (!$killer instanceof Player || !$killer->isOnline() || !$killer->isAlive()) {
+            return;
         }
+
+        $ctx = new TriggerContext(
+            TriggerType::ON_KILL,
+            $killer,
+            $victim,
+            0.0,
+            $killer->getHealth(),
+            $killer->getMaxHealth()
+        );
+        $this->armorManager->fireTrigger($killer, $ctx);
+        $this->armorManager->getStats()->increment($killer, ArmorStatsTracker::KILLS_WITH_SET);
     }
 
     // =========================================================================

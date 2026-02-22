@@ -12,12 +12,13 @@ use ValientFactions\Main;
 /**
  * Core logic for the custom armor system.
  *
- * Key design decisions:
- *  - ALL PERKS require exactly 4 pieces of the same set. Partial sets grant NOTHING.
- *  - A per-player set cache (updated every 5 s by ArmorEffectTask) avoids expensive
- *    inventory scans on every combat event.
- *  - Ability cooldowns, invincibility windows, and recursion guards are all tracked here.
- *  - Combat triggers (ignition, low-HP shield, kill burst, thorns) are dispatched here.
+ * Key responsibilities:
+ *  - Detect which (4/4) set a player is wearing and cache the result.
+ *  - Expose passive perk values (damage reduction, boost, KB, lifesteal, etc.).
+ *  - Manage per-player, per-trigger cooldowns.
+ *  - Dispatch triggers ({@see SetTrigger}) when events occur.
+ *  - Manage invincibility windows granted by the Void Shroud trigger.
+ *  - Manage the thorns recursion guard.
  */
 final class ArmorManager {
 
@@ -26,35 +27,28 @@ final class ArmorManager {
     private ArmorStatsTracker $stats;
 
     // -------------------------------------------------------------------------
-    // Per-player set cache  (UUID string → ?ArmorSet)
-    // Updated every 5 s by ArmorEffectTask; live-checked on first access per tick
+    // Per-player set cache  UUID → ?ArmorSet  (updated every 5 s by task)
     // -------------------------------------------------------------------------
     /** @var array<string, ArmorSet|null> */
     private array $setCache = [];
-    /** Previous cache snapshot for equip/unequip change detection */
-    /** @var array<string, string|null> UUID → set name or null */
+
+    /** @var array<string, string|null>  UUID → set name, for change detection */
     private array $prevSetName = [];
 
     // -------------------------------------------------------------------------
-    // Ability cooldowns: UUID → server tick when ability expires
+    // Per-trigger cooldowns:  "{UUID}|{triggerName}" → expiry server tick
     // -------------------------------------------------------------------------
     /** @var array<string, int> */
-    private array $abilityCooldowns = [];
+    private array $triggerCooldowns = [];
 
     // -------------------------------------------------------------------------
-    // Void low-HP emergency shield cooldown: UUID → expiry tick
-    // -------------------------------------------------------------------------
-    /** @var array<string, int> */
-    private array $voidShieldCooldowns = [];
-
-    // -------------------------------------------------------------------------
-    // Invincibility pool (Void Shroud ability): UUID → expiry tick
+    // Invincibility pool (Void Shroud):  UUID → expiry server tick
     // -------------------------------------------------------------------------
     /** @var array<string, int> */
     private array $invincibleUntil = [];
 
     // -------------------------------------------------------------------------
-    // Thorns recursion guard: set of UUIDs currently dealing reflected damage
+    // Thorns recursion guard:  UUID → true while reflection is in-flight
     // -------------------------------------------------------------------------
     /** @var array<string, true> */
     private array $thornsGuard = [];
@@ -76,15 +70,11 @@ final class ArmorManager {
     }
 
     // =========================================================================
-    // Set detection  (REQUIRES ALL 4 PIECES)
+    // Set detection  (requires all 4 pieces)
     // =========================================================================
 
     /**
      * Returns [ArmorSet, int $pieces] for the dominant set the player is wearing.
-     * Perks are only granted when $pieces === 4.
-     *
-     * This is the informational method – use getCachedActiveSet() for performance
-     * in high-frequency event handlers.
      *
      * @return array{ArmorSet, int}|null  null = no custom armor at all
      */
@@ -115,10 +105,7 @@ final class ArmorManager {
         return $topSet !== null ? [$topSet, $counts[$topName]] : null;
     }
 
-    /**
-     * Returns the ArmorSet only when ALL 4 pieces of the same set are worn.
-     * Returns null for any partial set.
-     */
+    /** Returns the active set only when all 4 pieces are worn; null otherwise. */
     public function getActiveSet(Player $player): ?ArmorSet {
         $info = $this->getPlayerSetInfo($player);
         if ($info === null || $info[1] !== 4) {
@@ -127,38 +114,43 @@ final class ArmorManager {
         return $info[0];
     }
 
-    /**
-     * Returns the cached active set (requires 4 pieces).
-     * Updated by ArmorEffectTask every 5 s.
-     */
+    /** Returns the cached active set (updated every 5 s by ArmorEffectTask). */
     public function getCachedActiveSet(Player $player): ?ArmorSet {
         return $this->setCache[$player->getUniqueId()->toString()] ?? null;
     }
 
     /**
-     * Update the cache for a player and return whether the active set changed.
-     * Called by ArmorEffectTask.
+     * Refresh the set cache for one player.
+     * @return bool true if the active set changed since the last call.
      */
     public function updateCache(Player $player): bool {
-        $uuid      = $player->getUniqueId()->toString();
-        $newSet    = $this->getActiveSet($player);
-        $newName   = $newSet?->getName();
-        $prevName  = $this->prevSetName[$uuid] ?? "__unset__";
+        $uuid     = $player->getUniqueId()->toString();
+        $newSet   = $this->getActiveSet($player);
+        $newName  = $newSet?->getName();
+        $prevName = $this->prevSetName[$uuid] ?? "__unset__";
 
-        $this->setCache[$uuid]   = $newSet;
+        $this->setCache[$uuid]    = $newSet;
         $this->prevSetName[$uuid] = $newName;
 
         return $newName !== $prevName;
     }
 
-    /** Remove cache entries when a player leaves. */
+    /** Remove all cached state for a player (call on disconnect). */
     public function removeFromCache(Player $player): void {
         $uuid = $player->getUniqueId()->toString();
         unset($this->setCache[$uuid], $this->prevSetName[$uuid]);
+        // Clean up trigger cooldown entries for this player
+        $prefix = $uuid . "|";
+        foreach (array_keys($this->triggerCooldowns) as $key) {
+            if (str_starts_with($key, $prefix)) {
+                unset($this->triggerCooldowns[$key]);
+            }
+        }
+        unset($this->invincibleUntil[$uuid]);
     }
 
     // =========================================================================
-    // Stat accessors  (zero unless 4/4 set active)
+    // Passive perk accessors  (zero unless 4/4 set is active)
     // =========================================================================
 
     public function getDamageReduction(Player $player): float {
@@ -194,14 +186,12 @@ final class ArmorManager {
     }
 
     // =========================================================================
-    // Potion effect management  (called by ArmorEffectTask)
+    // Potion effect refresh  (called by ArmorEffectTask every 5 s)
     // =========================================================================
 
     /**
-     * Refresh persistent potion-effect perks for a player.
-     * Only runs when the player has a complete (4/4) set active.
-     * Effect duration is 200 ticks (10 s) so it stays active between
-     * 100-tick task refreshes.
+     * Re-apply every persistent effect perk for a player wearing a full set.
+     * Duration is 200 ticks (10 s) so effects stay active between 5-second refreshes.
      */
     public function refreshEffects(Player $player): void {
         $set = $this->getCachedActiveSet($player);
@@ -210,7 +200,7 @@ final class ArmorManager {
         }
 
         $perks    = $set->getPerks();
-        $duration = 200; // ticks
+        $duration = 200;
 
         foreach ($perks as $perkValue => $amount) {
             $perk = ArmorPerk::from($perkValue);
@@ -242,52 +232,226 @@ final class ArmorManager {
     }
 
     // =========================================================================
-    // Active ability
+    // Trigger dispatch
     // =========================================================================
 
     /**
-     * Attempt to activate the ability for the set a player is currently wearing.
+     * Dispatch all triggers on the player's active set that match the context's
+     * TriggerType.  ON_COMMAND triggers are skipped here; use
+     * {@see activateCommandTrigger()} for those.
      *
-     * @return array{bool, string}  [success, message] – message sent to the player.
+     * Each matching trigger is checked for:
+     *  1. Cooldown (skipped if still cooling down)
+     *  2. shouldFire() condition
+     * If both pass, execute() is called, the cooldown is set, and the feedback
+     * message is sent to the player as a tip.
      */
-    public function activateAbility(Player $player): array {
+    public function fireTrigger(Player $player, TriggerContext $ctx): void {
         $set = $this->getCachedActiveSet($player) ?? $this->getActiveSet($player);
-
         if ($set === null) {
-            return [false, "§cYou must wear a complete custom armor set (4/4 pieces) to use an ability!"];
-        }
-
-        $ability = $set->getAbility();
-        if ($ability === null) {
-            return [false, "§cThis set has no active ability."];
+            return;
         }
 
         $uuid = $player->getUniqueId()->toString();
         $now  = $this->plugin->getServer()->getTick();
 
-        if (isset($this->abilityCooldowns[$uuid]) && $this->abilityCooldowns[$uuid] > $now) {
-            $remaining = (int) ceil(($this->abilityCooldowns[$uuid] - $now) / 20);
-            return [false, "§cAbility on cooldown! §7(" . $remaining . "s remaining)"];
+        foreach ($set->getTriggers() as $trigger) {
+            if ($trigger->getTriggerType() !== $ctx->type) {
+                continue;
+            }
+            // ON_COMMAND triggers are activated manually only
+            if ($ctx->type === TriggerType::ON_COMMAND) {
+                continue;
+            }
+
+            $cdKey = $uuid . "|" . $trigger->getName();
+
+            // Cooldown check
+            if (($this->triggerCooldowns[$cdKey] ?? 0) > $now) {
+                continue;
+            }
+
+            // Extra condition
+            if (!$trigger->shouldFire($ctx)) {
+                continue;
+            }
+
+            // Set cooldown
+            if ($trigger->getCooldownTicks() > 0) {
+                $this->triggerCooldowns[$cdKey] = $now + $trigger->getCooldownTicks();
+            }
+
+            // Execute
+            $msg = $trigger->execute($player, $this, $ctx);
+            if ($msg !== "") {
+                $player->sendTip($msg);
+            }
+
+            $this->stats->increment($player, ArmorStatsTracker::COMBAT_TRIGGERS);
         }
-
-        // Set cooldown before executing (prevents double-firing in edge cases)
-        $this->abilityCooldowns[$uuid] = $now + $ability->getCooldownTicks();
-
-        return [true, $ability->execute($player, $this)];
     }
 
     /**
-     * Get remaining cooldown ticks for a player's ability, or 0 if ready.
+     * Fire the ON_EQUIP triggers for a player (called when the full set is
+     * first detected by ArmorEffectTask).
      */
-    public function getAbilityCooldownTicks(Player $player): int {
+    public function fireEquipTriggers(Player $player): void {
+        $set = $this->getCachedActiveSet($player);
+        if ($set === null) {
+            return;
+        }
+
+        $ctx  = new TriggerContext(TriggerType::ON_EQUIP, $player);
+        $uuid = $player->getUniqueId()->toString();
+        $now  = $this->plugin->getServer()->getTick();
+
+        foreach ($set->getTriggers() as $trigger) {
+            if ($trigger->getTriggerType() !== TriggerType::ON_EQUIP) {
+                continue;
+            }
+            $cdKey = $uuid . "|" . $trigger->getName();
+            if (($this->triggerCooldowns[$cdKey] ?? 0) > $now) {
+                continue;
+            }
+            if (!$trigger->shouldFire($ctx)) {
+                continue;
+            }
+            if ($trigger->getCooldownTicks() > 0) {
+                $this->triggerCooldowns[$cdKey] = $now + $trigger->getCooldownTicks();
+            }
+            $msg = $trigger->execute($player, $this, $ctx);
+            if ($msg !== "") {
+                $player->sendTip($msg);
+            }
+            $this->stats->increment($player, ArmorStatsTracker::COMBAT_TRIGGERS);
+        }
+    }
+
+    /**
+     * Fire the ON_LOW_HP triggers for a player.
+     * Called by ArmorEffectTask every 5 s when the player's HP is low.
+     */
+    public function fireLowHpTriggers(Player $player): void {
+        $set = $this->getCachedActiveSet($player);
+        if ($set === null) {
+            return;
+        }
+
+        $ctx  = new TriggerContext(
+            TriggerType::ON_LOW_HP,
+            $player,
+            null,
+            0.0,
+            $player->getHealth(),
+            $player->getMaxHealth()
+        );
+        $uuid = $player->getUniqueId()->toString();
+        $now  = $this->plugin->getServer()->getTick();
+
+        foreach ($set->getTriggers() as $trigger) {
+            if ($trigger->getTriggerType() !== TriggerType::ON_LOW_HP) {
+                continue;
+            }
+            $cdKey = $uuid . "|" . $trigger->getName();
+            if (($this->triggerCooldowns[$cdKey] ?? 0) > $now) {
+                continue;
+            }
+            if (!$trigger->shouldFire($ctx)) {
+                continue;
+            }
+            if ($trigger->getCooldownTicks() > 0) {
+                $this->triggerCooldowns[$cdKey] = $now + $trigger->getCooldownTicks();
+            }
+            $msg = $trigger->execute($player, $this, $ctx);
+            if ($msg !== "") {
+                $player->sendTip($msg);
+            }
+            $this->stats->increment($player, ArmorStatsTracker::COMBAT_TRIGGERS);
+        }
+    }
+
+    /**
+     * Attempt to manually activate the first ON_COMMAND trigger on the player's set.
+     *
+     * @return array{bool, string}  [success, message]
+     */
+    public function activateCommandTrigger(Player $player): array {
+        $set = $this->getCachedActiveSet($player) ?? $this->getActiveSet($player);
+
+        if ($set === null) {
+            return [false, "§cYou must wear a complete set (4/4 pieces) to use an ability!"];
+        }
+
+        $commandTriggers = array_filter(
+            $set->getTriggers(),
+            static fn(SetTrigger $t) => $t->getTriggerType() === TriggerType::ON_COMMAND
+        );
+
+        if (empty($commandTriggers)) {
+            return [false, "§eAll abilities for this set activate automatically! No manual ability available."];
+        }
+
+        $trigger = reset($commandTriggers);
         $uuid    = $player->getUniqueId()->toString();
         $now     = $this->plugin->getServer()->getTick();
-        $expiry  = $this->abilityCooldowns[$uuid] ?? 0;
-        return max(0, $expiry - $now);
+        $cdKey   = $uuid . "|" . $trigger->getName();
+
+        if (($this->triggerCooldowns[$cdKey] ?? 0) > $now) {
+            $remaining = (int) ceil(($this->triggerCooldowns[$cdKey] - $now) / 20);
+            return [false, "§cAbility on cooldown! §7(" . $remaining . "s remaining)"];
+        }
+
+        $ctx = new TriggerContext(TriggerType::ON_COMMAND, $player);
+
+        if (!$trigger->shouldFire($ctx)) {
+            return [false, "§cConditions not met to activate this ability."];
+        }
+
+        if ($trigger->getCooldownTicks() > 0) {
+            $this->triggerCooldowns[$cdKey] = $now + $trigger->getCooldownTicks();
+        }
+
+        $msg = $trigger->execute($player, $this, $ctx);
+        $this->stats->increment($player, ArmorStatsTracker::ABILITY_USES);
+        return [true, $msg];
     }
 
     // =========================================================================
-    // Invincibility  (Void Shroud ability)
+    // Trigger cooldown info  (used by actionbar display)
+    // =========================================================================
+
+    /**
+     * Returns the longest remaining cooldown and its trigger name for actionbar display.
+     * Returns null when no cooldown-bearing trigger is equipped.
+     *
+     * @return array{string, int}|null  [trigger name, remaining ticks]
+     */
+    public function getPrimaryTriggerCooldown(Player $player): ?array {
+        $set = $this->getCachedActiveSet($player);
+        if ($set === null) {
+            return null;
+        }
+
+        $uuid = $player->getUniqueId()->toString();
+        $now  = $this->plugin->getServer()->getTick();
+        $best = null;
+
+        foreach ($set->getTriggers() as $trigger) {
+            if ($trigger->getCooldownTicks() <= 0) {
+                continue;
+            }
+            $cdKey     = $uuid . "|" . $trigger->getName();
+            $remaining = max(0, ($this->triggerCooldowns[$cdKey] ?? 0) - $now);
+            if ($best === null || $remaining > $best[1]) {
+                $best = [$trigger->getName(), $remaining];
+            }
+        }
+
+        return $best;
+    }
+
+    // =========================================================================
+    // Invincibility  (granted by Void Shroud and similar triggers)
     // =========================================================================
 
     /** Grant server-side invincibility for $durationTicks ticks. */
@@ -296,43 +460,15 @@ final class ArmorManager {
         $this->invincibleUntil[$uuid] = $this->plugin->getServer()->getTick() + $durationTicks;
     }
 
-    /** Returns true if the player is currently invincible (Void Shroud active). */
+    /** Returns true if the player is currently invincible. */
     public function isInvincible(Player $player): bool {
         $uuid = $player->getUniqueId()->toString();
         $now  = $this->plugin->getServer()->getTick();
         if (isset($this->invincibleUntil[$uuid]) && $this->invincibleUntil[$uuid] > $now) {
             return true;
         }
-        // Clean up expired entry
         unset($this->invincibleUntil[$uuid]);
         return false;
-    }
-
-    // =========================================================================
-    // Void emergency shield  (passive trigger)
-    // =========================================================================
-
-    /**
-     * Check and consume the Void set's low-HP emergency shield.
-     * Returns true if the shield absorbed the hit (caller should cancel damage).
-     */
-    public function consumeVoidShield(Player $player): bool {
-        $set = $this->getCachedActiveSet($player);
-        if ($set === null || $set->getName() !== "Void") {
-            return false;
-        }
-
-        $uuid = $player->getUniqueId()->toString();
-        $now  = $this->plugin->getServer()->getTick();
-
-        if (isset($this->voidShieldCooldowns[$uuid]) && $this->voidShieldCooldowns[$uuid] > $now) {
-            return false; // Shield on cooldown
-        }
-
-        // Shield triggers once, then enters a 45 s cooldown
-        $this->voidShieldCooldowns[$uuid] = $now + 45 * 20;
-        $this->stats->increment($player, ArmorStatsTracker::COMBAT_TRIGGERS);
-        return true;
     }
 
     // =========================================================================
@@ -352,29 +488,6 @@ final class ArmorManager {
     }
 
     // =========================================================================
-    // Kill trigger  (Storm "Killing Spree")
-    // =========================================================================
-
-    /**
-     * Called when $killer kills another player.
-     * Handles the Storm set's "Killing Spree" speed burst.
-     */
-    public function handleKill(Player $killer): void {
-        $set = $this->getCachedActiveSet($killer) ?? $this->getActiveSet($killer);
-        if ($set === null || $set->getName() !== "Storm") {
-            return;
-        }
-
-        $duration = 5 * 20; // 5 s
-        $killer->getEffects()->add(new EffectInstance(VanillaEffects::SPEED(),      $duration, 2, false)); // Speed III
-        $killer->getEffects()->add(new EffectInstance(VanillaEffects::JUMP_BOOST(), $duration, 1, false)); // Jump Boost II
-        $killer->sendTip("§b⚡ §aKilling Spree! §b+Speed III + Jump Boost II");
-
-        $this->stats->increment($killer, ArmorStatsTracker::COMBAT_TRIGGERS);
-        $this->stats->increment($killer, ArmorStatsTracker::KILLS_WITH_SET);
-    }
-
-    // =========================================================================
     // Item helpers
     // =========================================================================
 
@@ -386,11 +499,10 @@ final class ArmorManager {
         $inv->setLeggings($set->getItemForSlot(ArmorSet::SLOT_LEGGINGS));
         $inv->setBoots($set->getItemForSlot(ArmorSet::SLOT_BOOTS));
 
-        // Immediately update cache after equipping
         $this->updateCache($player);
     }
 
-    /** Returns the slot names that are missing a piece of $player's dominant set. */
+    /** Returns the slot names that are missing from $player's dominant set. */
     public function getMissingSlots(Player $player): array {
         $info = $this->getPlayerSetInfo($player);
         if ($info === null) {
@@ -419,12 +531,7 @@ final class ArmorManager {
     // Internal helpers
     // =========================================================================
 
-    /**
-     * Get a perk value for a player's ACTIVE (4/4) set.
-     * Returns 0.0 for partial sets.
-     */
     private function getPerkValue(Player $player, ArmorPerk $perk): float {
-        // Try cache first for hot paths, fall back to live check
         $set = $this->getCachedActiveSet($player) ?? $this->getActiveSet($player);
         if ($set === null) {
             return 0.0;

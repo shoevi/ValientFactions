@@ -15,19 +15,19 @@ use ValientFactions\module\modules\armor\ArmorManager;
 use ValientFactions\module\modules\armor\ArmorPerk;
 use ValientFactions\module\modules\armor\ArmorSet;
 use ValientFactions\module\modules\armor\ArmorStatsTracker;
+use ValientFactions\module\modules\armor\TriggerType;
 
 /**
- * /vfarmor  – manage and receive custom leather armor sets.
- * /vfability – activate the active ability of the wearer's current set.
+ * /armor – manage and receive custom leather armor sets.
  *
  * Subcommands:
  *   sets                       List all registered sets
  *   get <set> [slot|all]       Give yourself armor pieces
- *   give <player> <set>        Give a player a full set  (requires vf.armor.give)
- *   info                       Show your active set, pieces worn, and all perks
- *   inspect <player>           Show another player's set info  (requires vf.armor)
- *   stats [player]             View session combat stats
- *   ability                    Activate your set's active ability  (alias: /vfability)
+ *   give <player> <set>        Give a full set to a player  (requires .give perm)
+ *   info                       Show your active set, pieces, perks, and triggers
+ *   inspect <player>           Show another player's set info
+ *   stats [player]             View session combat statistics
+ *   ability                    Fire any ON_COMMAND trigger; otherwise list auto-triggers
  */
 final class ArmorCommand extends Command implements PluginOwned {
 
@@ -36,10 +36,10 @@ final class ArmorCommand extends Command implements PluginOwned {
 
     public function __construct(Main $plugin, ArmorManager $armorManager) {
         parent::__construct(
-            "vfarmor",
+            "armor",
             "ValientFactions custom armor command",
-            "/vfarmor <sets|get|give|info|inspect|stats|ability> [args]",
-            ["vfa", "vfability"]
+            "/armor <sets|get|give|info|inspect|stats|ability> [args]",
+            []
         );
         $this->setPermission("valientfactions.armor");
         $this->plugin       = $plugin;
@@ -49,16 +49,6 @@ final class ArmorCommand extends Command implements PluginOwned {
     public function execute(CommandSender $sender, string $commandLabel, array $args): bool {
         if (!$this->testPermission($sender)) {
             return false;
-        }
-
-        // /vfability is an alias that directly triggers the ability
-        if (strtolower($commandLabel) === "vfability") {
-            if (!$sender instanceof Player) {
-                $sender->sendMessage(TF::RED . "This command can only be used in-game.");
-                return true;
-            }
-            $this->handleAbility($sender);
-            return true;
         }
 
         if ($args === []) {
@@ -80,7 +70,7 @@ final class ArmorCommand extends Command implements PluginOwned {
                     return true;
                 }
                 if ($args === []) {
-                    $sender->sendMessage(TF::RED . "Usage: /vfarmor get <set> [helmet|chestplate|leggings|boots|all]");
+                    $sender->sendMessage(TF::RED . "Usage: /armor get <set> [helmet|chestplate|leggings|boots|all]");
                     return true;
                 }
                 $this->handleGet($sender, $args[0], $args[1] ?? "all");
@@ -92,7 +82,7 @@ final class ArmorCommand extends Command implements PluginOwned {
                     return true;
                 }
                 if (count($args) < 2) {
-                    $sender->sendMessage(TF::RED . "Usage: /vfarmor give <player> <set>");
+                    $sender->sendMessage(TF::RED . "Usage: /armor give <player> <set>");
                     return true;
                 }
                 $this->handleGive($sender, $args[0], $args[1]);
@@ -108,7 +98,7 @@ final class ArmorCommand extends Command implements PluginOwned {
 
             case "inspect":
                 if (empty($args)) {
-                    $sender->sendMessage(TF::RED . "Usage: /vfarmor inspect <player>");
+                    $sender->sendMessage(TF::RED . "Usage: /armor inspect <player>");
                     return true;
                 }
                 $target = $this->plugin->getServer()->getPlayerByPrefix($args[0]);
@@ -128,7 +118,7 @@ final class ArmorCommand extends Command implements PluginOwned {
                         return true;
                     }
                 } elseif (!$sender instanceof Player) {
-                    $sender->sendMessage(TF::RED . "Console must specify a player: /vfarmor stats <player>");
+                    $sender->sendMessage(TF::RED . "Console must specify a player: /armor stats <player>");
                     return true;
                 } else {
                     $target = $sender;
@@ -158,13 +148,13 @@ final class ArmorCommand extends Command implements PluginOwned {
 
     private function sendUsage(CommandSender $sender): void {
         $sender->sendMessage(TF::GOLD . "=== ValientFactions Armor ===");
-        $sender->sendMessage(TF::YELLOW . "/vfarmor sets"                         . TF::WHITE . " – List all armor sets");
-        $sender->sendMessage(TF::YELLOW . "/vfarmor get <set> [slot|all]"         . TF::WHITE . " – Receive armor pieces");
-        $sender->sendMessage(TF::YELLOW . "/vfarmor give <player> <set>"          . TF::WHITE . " – Give a full set to a player");
-        $sender->sendMessage(TF::YELLOW . "/vfarmor info"                          . TF::WHITE . " – View your active set & perks");
-        $sender->sendMessage(TF::YELLOW . "/vfarmor inspect <player>"             . TF::WHITE . " – Inspect another player's set");
-        $sender->sendMessage(TF::YELLOW . "/vfarmor stats [player]"               . TF::WHITE . " – View combat stats");
-        $sender->sendMessage(TF::YELLOW . "/vfarmor ability  §8or §e/vfability"   . TF::WHITE . " – Activate your set's ability");
+        $sender->sendMessage(TF::YELLOW . "/armor sets"                    . TF::WHITE . " – List all armor sets");
+        $sender->sendMessage(TF::YELLOW . "/armor get <set> [slot|all]"    . TF::WHITE . " – Receive armor pieces");
+        $sender->sendMessage(TF::YELLOW . "/armor give <player> <set>"     . TF::WHITE . " – Give a full set to a player");
+        $sender->sendMessage(TF::YELLOW . "/armor info"                     . TF::WHITE . " – View your active set, perks & triggers");
+        $sender->sendMessage(TF::YELLOW . "/armor inspect <player>"        . TF::WHITE . " – Inspect another player's set");
+        $sender->sendMessage(TF::YELLOW . "/armor stats [player]"          . TF::WHITE . " – View combat statistics");
+        $sender->sendMessage(TF::YELLOW . "/armor ability"                 . TF::WHITE . " – Use a manual ability or view auto-triggers");
     }
 
     private function handleSets(CommandSender $sender): void {
@@ -176,7 +166,7 @@ final class ArmorCommand extends Command implements PluginOwned {
                 . TF::RESET . TF::WHITE . " – "
                 . TF::GRAY  . $set->getDescription()
             );
-            // Show top perks in one line
+            // Top perks
             $perkParts = [];
             foreach ($set->getPerks() as $perkValue => $amount) {
                 $perk = ArmorPerk::from($perkValue);
@@ -187,6 +177,16 @@ final class ArmorCommand extends Command implements PluginOwned {
                 }
             }
             $sender->sendMessage(TF::DARK_GRAY . "  Perks: " . TF::GRAY . implode("  ", $perkParts));
+            // Triggers
+            foreach ($set->getTriggers() as $trigger) {
+                $cdSec = $trigger->getCooldownTicks() > 0 ? " §8(" . (int) ceil($trigger->getCooldownTicks() / 20) . "s CD)" : "";
+                $sender->sendMessage(
+                    TF::DARK_GRAY . "  " . $trigger->getTriggerType()->icon()
+                    . " [" . $trigger->getTriggerType()->label() . "] "
+                    . TF::LIGHT_PURPLE . $trigger->getName()
+                    . TF::GRAY . $cdSec
+                );
+            }
         }
     }
 
@@ -200,7 +200,7 @@ final class ArmorCommand extends Command implements PluginOwned {
 
         if ($slot === "all") {
             $this->armorManager->giveFullSet($player, $set);
-            $player->sendMessage($set->getLoreColor() . "✦ Equipped full " . $set->getName() . " set! §7(4/4 pieces)");
+            $player->sendMessage($set->getLoreColor() . "✦ Equipped full " . $set->getName() . " set! §7(4/4 pieces – triggers now active)");
             return;
         }
 
@@ -227,12 +227,12 @@ final class ArmorCommand extends Command implements PluginOwned {
         }
 
         $this->armorManager->giveFullSet($target, $set);
-        $target->sendMessage($set->getLoreColor() . "✦ You received the " . $set->getName() . " armor set! §7(4/4)");
+        $target->sendMessage($set->getLoreColor() . "✦ You received the " . $set->getName() . " armor set! §7(4/4 – triggers active)");
         $sender->sendMessage(TF::GREEN . "Gave " . $set->getLoreColor() . $set->getName() . TF::GREEN . " armor to " . $target->getName() . "!");
     }
 
     private function handleInfo(CommandSender $viewer, Player $target): void {
-        $isOwn = ($viewer instanceof Player && $viewer->getUniqueId() === $target->getUniqueId());
+        $isOwn  = ($viewer instanceof Player && $viewer->getUniqueId() === $target->getUniqueId());
         $prefix = $isOwn ? "Your" : $target->getName() . "'s";
 
         $info = $this->armorManager->getPlayerSetInfo($target);
@@ -245,37 +245,43 @@ final class ArmorCommand extends Command implements PluginOwned {
         $isActive = ($pieces === 4);
         $viewer->sendMessage(TF::GOLD . "=== " . $prefix . " Armor: " . $set->getLoreColor() . $set->getName() . TF::GOLD . " ===");
 
-        // Pieces / status
         $statusColor = $isActive ? TF::GREEN : TF::RED;
         $viewer->sendMessage(TF::YELLOW . "Pieces: " . $statusColor . $pieces . "/4 "
-            . ($isActive ? TF::GREEN . "✔ ACTIVE" : TF::RED . "✖ INACTIVE – missing: " . implode(", ", $this->armorManager->getMissingSlots($target))));
+            . ($isActive
+                ? TF::GREEN . "✔ ACTIVE"
+                : TF::RED . "✖ INACTIVE – missing: " . implode(", ", $this->armorManager->getMissingSlots($target))));
 
         if (!$isActive) {
-            $viewer->sendMessage(TF::RED . "Perks are LOCKED until all 4 pieces are equipped.");
+            $viewer->sendMessage(TF::RED . "All perks and triggers are LOCKED until all 4 pieces are equipped.");
             return;
         }
 
-        // Perks
+        // Passive perks
         $viewer->sendMessage(TF::YELLOW . "Active Perks:");
         foreach ($set->getPerks() as $perkValue => $amount) {
             $perk = ArmorPerk::from($perkValue);
             $viewer->sendMessage("  " . $this->fullPerkLine($perk, $amount));
         }
 
-        // Combat trigger
-        $trigger = $set->getCombatTriggerDescription();
-        if ($trigger !== null) {
-            $viewer->sendMessage(TF::DARK_PURPLE . "Passive Trigger: " . TF::GRAY . $trigger);
-        }
-
-        // Ability
-        $ability = $set->getAbility();
-        if ($ability !== null && $isOwn) {
-            $cdTicks = $this->armorManager->getAbilityCooldownTicks($target);
-            $cdText  = $cdTicks > 0 ? TF::RED . (int) ceil($cdTicks / 20) . "s" : TF::GREEN . "READY";
-            $viewer->sendMessage(TF::AQUA . "Ability: §f" . $ability->getName() . "  " . $cdText . TF::GRAY . "  /vfability");
-        } elseif ($ability !== null) {
-            $viewer->sendMessage(TF::AQUA . "Ability: §f" . $ability->getName());
+        // Triggers
+        $triggers = $set->getTriggers();
+        if ($triggers !== []) {
+            $viewer->sendMessage(TF::LIGHT_PURPLE . "Auto Triggers:");
+            $now  = $this->plugin->getServer()->getTick();
+            foreach ($triggers as $trigger) {
+                $cdTicks   = 0;
+                $cdDisplay = TF::GREEN . "READY";
+                if ($isOwn && $trigger->getCooldownTicks() > 0) {
+                    // Approximate remaining via getPrimaryTriggerCooldown (simplest approach)
+                    $cdDisplay = TF::GREEN . "READY";
+                }
+                $icon = $trigger->getTriggerType()->icon();
+                $viewer->sendMessage(
+                    "  " . TF::DARK_PURPLE . $icon . " [" . $trigger->getTriggerType()->label() . "] "
+                    . TF::WHITE . $trigger->getName()
+                    . TF::GRAY . " – " . $trigger->getDescription()
+                );
+            }
         }
     }
 
@@ -299,12 +305,12 @@ final class ArmorCommand extends Command implements PluginOwned {
             ArmorStatsTracker::THORNS_REFLECTED     => ["§4", "Dmg Reflected (Thorns)"],
             ArmorStatsTracker::KILLS_WITH_SET       => ["§6", "Kills With Set"],
             ArmorStatsTracker::ABILITY_USES         => ["§b", "Ability Uses"],
-            ArmorStatsTracker::COMBAT_TRIGGERS      => ["§5", "Combat Triggers Fired"],
+            ArmorStatsTracker::COMBAT_TRIGGERS      => ["§5", "Triggers Fired"],
         ];
 
         foreach ($map as $key => [$color, $label]) {
             if (isset($stats[$key]) && $stats[$key] > 0.0) {
-                $value = $stats[$key];
+                $value   = $stats[$key];
                 $display = (fmod($value, 1.0) === 0.0) ? (int) $value : round($value, 2);
                 $viewer->sendMessage("  " . $color . $label . ": §f" . $display);
             }
@@ -312,7 +318,39 @@ final class ArmorCommand extends Command implements PluginOwned {
     }
 
     private function handleAbility(Player $player): void {
-        [$success, $message] = $this->armorManager->activateAbility($player);
+        $set = $this->armorManager->getCachedActiveSet($player)
+            ?? $this->armorManager->getActiveSet($player);
+
+        if ($set === null) {
+            $player->sendMessage(TF::RED . "You must wear a complete set (4/4 pieces) to use this.");
+            return;
+        }
+
+        // Check for ON_COMMAND triggers
+        $hasCommand = false;
+        foreach ($set->getTriggers() as $trigger) {
+            if ($trigger->getTriggerType() === TriggerType::ON_COMMAND) {
+                $hasCommand = true;
+                break;
+            }
+        }
+
+        if (!$hasCommand) {
+            // No manual ability: show auto-trigger summary
+            $player->sendMessage(TF::YELLOW . "✦ " . $set->getName() . " Set – All abilities fire automatically:");
+            foreach ($set->getTriggers() as $trigger) {
+                $player->sendMessage(
+                    "  " . TF::LIGHT_PURPLE . $trigger->getTriggerType()->icon()
+                    . " [" . $trigger->getTriggerType()->label() . "] "
+                    . TF::WHITE . $trigger->getName()
+                    . TF::GRAY . " – " . $trigger->getDescription()
+                );
+            }
+            return;
+        }
+
+        // Fire the ON_COMMAND trigger
+        [$success, $message] = $this->armorManager->activateCommandTrigger($player);
         if ($message !== "") {
             $player->sendMessage($message);
         }
@@ -325,45 +363,43 @@ final class ArmorCommand extends Command implements PluginOwned {
     // Formatting helpers
     // =========================================================================
 
-    /** Short inline perk label (used in /vfarmor sets). */
     private function shortPerkLabel(ArmorPerk $perk, float $amount): string {
         return match ($perk) {
-            ArmorPerk::DAMAGE_REDUCTION     => sprintf("§a%.0f%% DR",       $amount * 100),
-            ArmorPerk::DAMAGE_BOOST         => sprintf("§c+%.0f%% Dmg",     $amount * 100),
-            ArmorPerk::THORNS               => sprintf("§4%.0f%% Thorns",   $amount * 100),
-            ArmorPerk::KNOCKBACK_RESISTANCE => sprintf("§a%.0f%% KB",       $amount * 100),
+            ArmorPerk::DAMAGE_REDUCTION      => sprintf("§a%.0f%% DR",      $amount * 100),
+            ArmorPerk::DAMAGE_BOOST          => sprintf("§c+%.0f%% Dmg",    $amount * 100),
+            ArmorPerk::THORNS                => sprintf("§4%.0f%% Thorns",  $amount * 100),
+            ArmorPerk::KNOCKBACK_RESISTANCE  => sprintf("§a%.0f%% KB",      $amount * 100),
             ArmorPerk::FALL_DAMAGE_REDUCTION => sprintf("§a%.0f%% Fall",    $amount * 100),
             ArmorPerk::EXPLOSION_RESISTANCE  => sprintf("§a%.0f%% Expl",    $amount * 100),
-            ArmorPerk::SLOWNESS_ON_HIT      => "§9Slow",
-            ArmorPerk::LIFESTEAL            => sprintf("§d%.0f%% LS",       $amount * 100),
-            ArmorPerk::SPEED               => "§aSpd" . (int) $amount,
-            ArmorPerk::REGENERATION        => "§aRegen" . (int) $amount,
-            ArmorPerk::STRENGTH            => "§cStr" . (int) $amount,
-            ArmorPerk::RESISTANCE          => "§aRes" . (int) $amount,
-            ArmorPerk::JUMP_BOOST          => "§aJmp" . (int) $amount,
-            ArmorPerk::ABSORPTION          => "§6Abs" . (int) $amount,
-            ArmorPerk::FIRE_RESISTANCE     => "§6FireRes",
+            ArmorPerk::SLOWNESS_ON_HIT       => "§9Slow",
+            ArmorPerk::LIFESTEAL             => sprintf("§d%.0f%% LS",      $amount * 100),
+            ArmorPerk::SPEED                 => "§aSpd"   . (int) $amount,
+            ArmorPerk::REGENERATION          => "§aRegen" . (int) $amount,
+            ArmorPerk::STRENGTH              => "§cStr"   . (int) $amount,
+            ArmorPerk::RESISTANCE            => "§aRes"   . (int) $amount,
+            ArmorPerk::JUMP_BOOST            => "§aJmp"   . (int) $amount,
+            ArmorPerk::ABSORPTION            => "§6Abs"   . (int) $amount,
+            ArmorPerk::FIRE_RESISTANCE       => "§6FireRes",
         };
     }
 
-    /** Full coloured perk line (used in /vfarmor info). */
     private function fullPerkLine(ArmorPerk $perk, float $amount): string {
         return match ($perk) {
-            ArmorPerk::DAMAGE_REDUCTION     => sprintf(TF::AQUA  . "Damage Reduction: "      . TF::WHITE . "%.0f%%",  $amount * 100),
-            ArmorPerk::DAMAGE_BOOST         => sprintf(TF::RED   . "Damage Boost: "           . TF::WHITE . "+%.0f%%", $amount * 100),
-            ArmorPerk::THORNS               => sprintf(TF::DARK_RED . "Thorns: "              . TF::WHITE . "%.0f%% reflected", $amount * 100),
-            ArmorPerk::KNOCKBACK_RESISTANCE => sprintf(TF::GREEN . "KB Resistance: "          . TF::WHITE . "%.0f%%",  $amount * 100),
-            ArmorPerk::FALL_DAMAGE_REDUCTION => sprintf(TF::GREEN . "Fall Dmg Reduction: "   . TF::WHITE . "%.0f%%",  $amount * 100),
-            ArmorPerk::EXPLOSION_RESISTANCE  => sprintf(TF::GREEN . "Explosion Resistance: " . TF::WHITE . "%.0f%%",  $amount * 100),
-            ArmorPerk::SLOWNESS_ON_HIT      => sprintf(TF::BLUE  . "Slowness on Hit: "        . TF::WHITE . "%.1fs",  $amount / 20),
-            ArmorPerk::LIFESTEAL            => sprintf(TF::LIGHT_PURPLE . "Lifesteal: "       . TF::WHITE . "%.0f%%", $amount * 100),
-            ArmorPerk::SPEED               => TF::GREEN           . "Speed "         . $this->roman((int) $amount),
-            ArmorPerk::REGENERATION        => TF::GREEN           . "Regeneration "  . $this->roman((int) $amount),
-            ArmorPerk::STRENGTH            => TF::RED             . "Strength "      . $this->roman((int) $amount),
-            ArmorPerk::RESISTANCE          => TF::GREEN           . "Resistance "    . $this->roman((int) $amount),
-            ArmorPerk::JUMP_BOOST          => TF::GREEN           . "Jump Boost "    . $this->roman((int) $amount),
-            ArmorPerk::ABSORPTION          => TF::GOLD            . "Absorption "    . $this->roman((int) $amount),
-            ArmorPerk::FIRE_RESISTANCE     => TF::GOLD            . "Fire Resistance",
+            ArmorPerk::DAMAGE_REDUCTION      => sprintf(TF::AQUA        . "Damage Reduction: "      . TF::WHITE . "%.0f%%",  $amount * 100),
+            ArmorPerk::DAMAGE_BOOST          => sprintf(TF::RED         . "Damage Boost: "           . TF::WHITE . "+%.0f%%", $amount * 100),
+            ArmorPerk::THORNS                => sprintf(TF::DARK_RED    . "Thorns: "                 . TF::WHITE . "%.0f%% reflected", $amount * 100),
+            ArmorPerk::KNOCKBACK_RESISTANCE  => sprintf(TF::GREEN       . "KB Resistance: "          . TF::WHITE . "%.0f%%",  $amount * 100),
+            ArmorPerk::FALL_DAMAGE_REDUCTION => sprintf(TF::GREEN       . "Fall Dmg Reduction: "     . TF::WHITE . "%.0f%%",  $amount * 100),
+            ArmorPerk::EXPLOSION_RESISTANCE  => sprintf(TF::GREEN       . "Explosion Resistance: "   . TF::WHITE . "%.0f%%",  $amount * 100),
+            ArmorPerk::SLOWNESS_ON_HIT       => sprintf(TF::BLUE        . "Slowness on Hit: "        . TF::WHITE . "%.1fs",   $amount / 20),
+            ArmorPerk::LIFESTEAL             => sprintf(TF::LIGHT_PURPLE . "Lifesteal: "             . TF::WHITE . "%.0f%%",  $amount * 100),
+            ArmorPerk::SPEED                 => TF::GREEN        . "Speed "        . $this->roman((int) $amount),
+            ArmorPerk::REGENERATION          => TF::GREEN        . "Regeneration " . $this->roman((int) $amount),
+            ArmorPerk::STRENGTH              => TF::RED          . "Strength "     . $this->roman((int) $amount),
+            ArmorPerk::RESISTANCE            => TF::GREEN        . "Resistance "   . $this->roman((int) $amount),
+            ArmorPerk::JUMP_BOOST            => TF::GREEN        . "Jump Boost "   . $this->roman((int) $amount),
+            ArmorPerk::ABSORPTION            => TF::GOLD         . "Absorption "   . $this->roman((int) $amount),
+            ArmorPerk::FIRE_RESISTANCE       => TF::GOLD         . "Fire Resistance",
         };
     }
 

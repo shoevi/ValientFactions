@@ -12,11 +12,11 @@ commands:
     usage: "/vfactions <modules|enable|disable|reload> [args]"
     permission: valientfactions.command
     aliases: [vf, factions]
-  vfarmor:
-    description: Manage custom leather armor sets
-    usage: "/vfarmor <sets|get|give|info|inspect|stats|ability> [args]"
+  armor:
+    description: Manage custom leather armor sets with auto-trigger abilities
+    usage: "/armor <sets|get|give|info|inspect|stats|ability> [args]"
     permission: valientfactions.armor
-    aliases: [vfa, vfability]
+    aliases: [armorset]
 
 permissions:
   valientfactions.command:
@@ -42,8 +42,8 @@ permissions:
     description: Allows reloading the plugin configuration
     default: op
   valientfactions.armor:
-    description: Allows access to /vfarmor (sets, get, info)
+    description: Allows access to /armor (sets, get, info, ability)
     default: op
   valientfactions.armor.give:
-    description: Allows giving armor sets to other players via /vfarmor give
+    description: Allows giving armor sets to other players via /armor give
     default: op

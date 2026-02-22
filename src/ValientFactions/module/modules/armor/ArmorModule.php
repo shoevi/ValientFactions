@@ -26,7 +26,7 @@ use ValientFactions\module\modules\armor\sets\WarlordArmorSet;
  *  • ArmorManager       – set resolution, caching, ability cooldowns, combat triggers
  *  • ArmorListener      – real-time combat event handling
  *  • ArmorEffectTask    – cache refresh + effect application every 5 s
- *  • ArmorCommand       – /vfarmor + /vfability in-game interface
+ *  • ArmorCommand       – /armor in-game interface
  */
 final class ArmorModule extends BaseModule {
 
@@ -75,7 +75,7 @@ final class ArmorModule extends BaseModule {
         );
 
         $this->plugin->getLogger()->info(
-            TF::GREEN . "ArmorModule: registered " . count($this->registry->getAll()) . " armor sets"
+            TF::GREEN . "ArmorModule: registered " . count($this->registry->getAll()) . " sets with trigger-based ability system"
         );
 
         parent::onEnable();

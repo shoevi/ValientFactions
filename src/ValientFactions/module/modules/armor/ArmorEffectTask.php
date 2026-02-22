@@ -9,15 +9,26 @@ use pocketmine\utils\TextFormat as TF;
 use ValientFactions\Main;
 
 /**
- * Runs every 100 ticks (5 s).
+ * Runs every 100 ticks (5 seconds).
  *
- * Per tick:
- *  1. Updates the per-player set cache via {@see ArmorManager::updateCache()}.
- *  2. Fires equip / unequip title notifications when the set changes.
- *  3. Refreshes persistent potion effects for players with a complete (4/4) set.
- *  4. Sends an actionbar tip showing the active set name and ability cooldown.
+ * Each cycle for every online player:
+ *  1. Refresh the per-player set cache via {@see ArmorManager::updateCache()}.
+ *  2. On set-change: send equip/unequip title + fire ON_EQUIP triggers.
+ *  3. Refresh persistent potion-effect perks.
+ *  4. Fire ON_LOW_HP triggers (when HP ≤ 30%).
+ *  5. Display an actionbar tip showing the active set and trigger cooldowns.
  */
 final class ArmorEffectTask extends Task {
+
+    /**
+     * HP fraction at or below which ON_LOW_HP triggers are dispatched.
+     *
+     * Note: This is intentionally lower than VoidShroud's ON_HIT_TAKEN threshold
+     * (35%) because ON_LOW_HP fires periodically (every 5 s) and is designed for
+     * slow passive reactions.  ON_HIT_TAKEN triggers like VoidShroud fire
+     * immediately during combat and use a higher threshold for faster response.
+     */
+    private const LOW_HP_THRESHOLD = 0.30;
 
     private Main $plugin;
     private ArmorManager $armorManager;
@@ -29,28 +40,27 @@ final class ArmorEffectTask extends Task {
 
     public function onRun(): void {
         foreach ($this->plugin->getServer()->getOnlinePlayers() as $player) {
-            $changed = $this->armorManager->updateCache($player);
-
+            $changed   = $this->armorManager->updateCache($player);
             $activeSet = $this->armorManager->getCachedActiveSet($player);
 
-            // --- Notify on set change -------------------------------------------
+            // --- Equip / unequip notifications and ON_EQUIP triggers ----------
             if ($changed) {
                 if ($activeSet !== null) {
-                    // Full set equipped
                     $player->sendTitle(
                         $activeSet->getLoreColor() . "✦ " . $activeSet->getName() . " Set Active ✦",
-                        TF::GRAY . "All 4 pieces equipped – perks unlocked",
+                        TF::GRAY . "All 4 pieces equipped – abilities now active",
                         10, 40, 15
                     );
+                    // Fire ON_EQUIP triggers
+                    $this->armorManager->fireEquipTriggers($player);
                 } else {
-                    // Set removed / broken
                     $info = $this->armorManager->getPlayerSetInfo($player);
                     if ($info !== null) {
                         [$set, $pieces] = $info;
                         $missing = $this->armorManager->getMissingSlots($player);
                         $player->sendTitle(
                             TF::RED . "✖ " . $set->getName() . " Set Incomplete",
-                            TF::GRAY . ($pieces) . "/4 pieces – missing: " . implode(", ", $missing),
+                            TF::GRAY . $pieces . "/4 pieces – missing: " . implode(", ", $missing),
                             10, 40, 15
                         );
                     } else {
@@ -63,21 +73,31 @@ final class ArmorEffectTask extends Task {
                 }
             }
 
-            // --- Refresh persistent effects ------------------------------------
+            // --- Refresh persistent effects -----------------------------------
             $this->armorManager->refreshEffects($player);
 
-            // --- Actionbar tip (active set + ability cooldown) -----------------
+            // --- ON_LOW_HP triggers -------------------------------------------
             if ($activeSet !== null) {
-                $ability = $activeSet->getAbility();
-                $tip     = $activeSet->getLoreColor() . "✦ " . $activeSet->getName() . " Set";
+                $hpFraction = $player->getMaxHealth() > 0
+                    ? $player->getHealth() / $player->getMaxHealth()
+                    : 1.0;
+                if ($hpFraction <= self::LOW_HP_THRESHOLD) {
+                    $this->armorManager->fireLowHpTriggers($player);
+                }
+            }
 
-                if ($ability !== null) {
-                    $cdTicks = $this->armorManager->getAbilityCooldownTicks($player);
-                    if ($cdTicks > 0) {
-                        $cdSec = (int) ceil($cdTicks / 20);
-                        $tip  .= TF::GRAY . " │ " . TF::RED . $ability->getName() . ": " . $cdSec . "s";
+            // --- Actionbar: active set + trigger cooldowns --------------------
+            if ($activeSet !== null) {
+                $tip = $activeSet->getLoreColor() . "✦ " . $activeSet->getName() . " Set";
+
+                $cdInfo = $this->armorManager->getPrimaryTriggerCooldown($player);
+                if ($cdInfo !== null) {
+                    [$triggerName, $remaining] = $cdInfo;
+                    if ($remaining > 0) {
+                        $cdSec = (int) ceil($remaining / 20);
+                        $tip  .= TF::GRAY . " │ " . TF::RED . $triggerName . ": " . $cdSec . "s";
                     } else {
-                        $tip .= TF::GRAY . " │ " . TF::GREEN . $ability->getName() . ": READY §7(/vfability)";
+                        $tip .= TF::GRAY . " │ " . TF::GREEN . $triggerName . ": READY";
                     }
                 }
 

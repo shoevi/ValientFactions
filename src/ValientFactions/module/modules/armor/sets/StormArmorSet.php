@@ -9,18 +9,15 @@ use pocketmine\utils\TextFormat as TF;
 use ValientFactions\module\modules\armor\abilities\ThunderDashAbility;
 use ValientFactions\module\modules\armor\ArmorPerk;
 use ValientFactions\module\modules\armor\ArmorSet;
-use ValientFactions\module\modules\armor\SetAbility;
 
 /**
  * Storm Armor Set – Blessed by the sky.
  *
- * The premier mobility and pressure set. Blazing Speed III lets the wearer
- * dictate every engagement while the on-hit Slowness I drags enemies to a crawl.
+ * Passive perks: Speed III, +25% damage, 15% KB resist, Slowness-on-hit, Jump Boost II.
  *
- * Passive combat trigger: On player kill, gain Speed III + Jump Boost II for 5 s
- * ("Killing Spree").
- *
- * Active ability: Thunder Dash – launch forward at extreme speed.
+ * Triggers (auto-fire):
+ *  1. ThunderDashAbility (ON_KILL, 20s CD) – on player kill, launch forward
+ *     and gain Speed III + Jump Boost II for 5 seconds.
  */
 final class StormArmorSet extends ArmorSet {
 
@@ -45,16 +42,14 @@ final class StormArmorSet extends ArmorSet {
             ArmorPerk::SPEED->value               => 3.0,
             ArmorPerk::DAMAGE_BOOST->value         => 0.25,
             ArmorPerk::KNOCKBACK_RESISTANCE->value => 0.15,
-            ArmorPerk::SLOWNESS_ON_HIT->value      => 60.0,  // 3 s Slowness I on target
+            ArmorPerk::SLOWNESS_ON_HIT->value      => 60.0, // 3 s Slowness I on target
             ArmorPerk::JUMP_BOOST->value           => 2.0,
         ];
     }
 
-    public function getAbility(): ?SetAbility {
-        return new ThunderDashAbility();
-    }
-
-    public function getCombatTriggerDescription(): ?string {
-        return "On kill: Speed III + Jump Boost II for 5s (Killing Spree)";
+    public function getTriggers(): array {
+        return [
+            new ThunderDashAbility(),
+        ];
     }
 }
