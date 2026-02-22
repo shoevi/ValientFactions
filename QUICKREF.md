@@ -19,9 +19,9 @@ cd /path/to/pmmp && ./start.sh
 /vf modules                        # Same (alias)
 /factions modules                  # Same (alias)
 
-/vfactions enable Chat             # Enable Chat module
-/vfactions disable Protection      # Disable Protection module
-/vfactions reload                  # Reload config & modules
+/vfactions enable Armor             # Enable Armor module
+/vfactions disable Armor            # Disable Armor module
+/vfactions reload                   # Reload config & modules
 ```
 
 ## Module Quick Add
@@ -54,6 +54,7 @@ $this->moduleManager->registerModule(new NewModule($this));
 
 // 3. Add to resources/config.yml
 modules:
+  Armor: true
   New: true
 ```
 

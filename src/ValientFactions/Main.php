@@ -7,9 +7,7 @@ namespace ValientFactions;
 use pocketmine\plugin\PluginBase;
 use pocketmine\utils\TextFormat;
 use ValientFactions\module\ModuleManager;
-use ValientFactions\module\modules\ChatModule;
-use ValientFactions\module\modules\ProtectionModule;
-use ValientFactions\module\modules\PowerModule;
+use ValientFactions\module\modules\armor\ArmorModule;
 use ValientFactions\command\VFactionsCommand;
 
 final class Main extends PluginBase {
@@ -46,9 +44,7 @@ final class Main extends PluginBase {
     }
 
     private function registerBuiltInModules(): void {
-        $this->moduleManager->registerModule(new ChatModule($this));
-        $this->moduleManager->registerModule(new ProtectionModule($this));
-        $this->moduleManager->registerModule(new PowerModule($this));
+        $this->moduleManager->registerModule(new ArmorModule($this));
         
         $this->getLogger()->debug("Registered " . count($this->moduleManager->getAllModules()) . " built-in modules");
     }

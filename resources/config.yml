@@ -1,7 +1,5 @@
 modules:
-  Chat: true
-  Protection: true
-  Power: true
+  Armor: true
 
 # Advanced settings
 settings:

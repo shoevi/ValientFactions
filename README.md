@@ -6,9 +6,7 @@ Advanced modular faction system for PocketMine-MP 5.
 
 - **Modular Architecture**: Enable/disable features as needed
 - **Built-in Modules**:
-  - **Chat Module**: Faction chat formatting and channels
-  - **Protection Module**: Land claims and territory protection
-  - **Power Module**: Player and faction power system
+  - **Armor Module**: Custom leather armor sets with PvP perks (damage reduction, damage boost, lifesteal, and more)
 
 ## Installation
 
@@ -19,12 +17,21 @@ Advanced modular faction system for PocketMine-MP 5.
 
 ## Commands
 
+### Module management
 - `/vfactions modules` - List all modules and their status
 - `/vfactions enable <module>` - Enable a specific module
 - `/vfactions disable <module>` - Disable a specific module
 - `/vfactions reload` - Reload the plugin configuration
 
 **Aliases**: `/vf`, `/factions`
+
+### Armor system
+- `/vfarmor sets` - List all custom armor sets
+- `/vfarmor get <set> [slot|all]` - Receive armor pieces
+- `/vfarmor give <player> <set>` - Give a full set to a player
+- `/vfarmor info` - View your active set and perks
+
+**Aliases**: `/vfa`
 
 ## Permissions
 
@@ -33,6 +40,8 @@ Advanced modular faction system for PocketMine-MP 5.
 - `valientfactions.module.enable` - Enable modules (default: op)
 - `valientfactions.module.disable` - Disable modules (default: op)
 - `valientfactions.reload` - Reload configuration (default: op)
+- `valientfactions.armor` - Access to /vfarmor (default: op)
+- `valientfactions.armor.give` - Give armor sets to others (default: op)
 
 ## Configuration
 
@@ -40,9 +49,7 @@ Edit `plugin_data/ValientFactions/config.yml`:
 
 ```yaml
 modules:
-  Chat: true          # Enable/disable chat module
-  Protection: true    # Enable/disable protection module
-  Power: true         # Enable/disable power module
+  Armor: true         # Enable/disable the custom armor module
 
 settings:
   debug: false

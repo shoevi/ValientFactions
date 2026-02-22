@@ -70,9 +70,7 @@ In `src/ValientFactions/Main.php`, add your module to `registerBuiltInModules()`
 
 ```php
 private function registerBuiltInModules(): void {
-    $this->moduleManager->registerModule(new ChatModule($this));
-    $this->moduleManager->registerModule(new ProtectionModule($this));
-    $this->moduleManager->registerModule(new PowerModule($this));
+    $this->moduleManager->registerModule(new ArmorModule($this));
     $this->moduleManager->registerModule(new YourModule($this));  // Add this line
 }
 ```
@@ -83,9 +81,7 @@ In `resources/config.yml`, add your module:
 
 ```yaml
 modules:
-  Chat: true
-  Protection: true
-  Power: true
+  Armor: true
   YourModuleName: true  # Add this line
 ```
 

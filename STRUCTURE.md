@@ -28,9 +28,21 @@ ValientFactions/
         ├── ModuleManager.php              # Module lifecycle manager
         │
         └── modules/                       # Built-in modules
-            ├── ChatModule.php             # Faction chat system
-            ├── ProtectionModule.php       # Land protection system
-            └── PowerModule.php            # Player power system
+            └── armor/                     # Custom leather armor sets
+                ├── ArmorPerk.php          # Perk enum (damage reduction, boost, etc.)
+                ├── ArmorSet.php           # Abstract armor set base class
+                ├── ArmorSetRegistry.php   # Stores and looks up set definitions
+                ├── ArmorManager.php       # Resolves worn sets, computes stats, applies effects
+                ├── ArmorEffectTask.php    # Repeating task for potion effect refresh
+                ├── ArmorListener.php      # Combat event handler (reduction/boost/lifesteal)
+                ├── ArmorModule.php        # Module entry point
+                ├── command/
+                │   └── ArmorCommand.php  # /vfarmor command
+                └── sets/
+                    ├── BlazeArmorSet.php  # Offense set (+25% dmg, Fire Resist)
+                    ├── VoidArmorSet.php   # Sustain set (30% reduction, lifesteal)
+                    ├── StormArmorSet.php  # Mobility set (Speed II, +20% dmg)
+                    └── WarlordArmorSet.php # Tank set (40% reduction, 40% KB resist)
 ```
 
 ## Key Components
@@ -116,9 +128,7 @@ ValientFactions/
 ### config.yml
 ```yaml
 modules:
-  Chat: true
-  Protection: true
-  Power: true
+  Armor: true
 
 settings:
   debug: false
